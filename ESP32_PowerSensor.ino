@@ -26,8 +26,8 @@
 
 // ===== CONFIGURACIÓN DEL SENSOR =====
 #define ENABLE_POWER_SENSOR      false    // SOLO sensor de potencia
-#define ENABLE_SPEED_SENSOR      false   // Desactivado
-#define ENABLE_HEART_RATE_SENSOR true   // Desactivado
+#define ENABLE_SPEED_SENSOR      true   // Desactivado
+#define ENABLE_HEART_RATE_SENSOR false   // Desactivado
 
 // ===== CONFIGURACIÓN DE DEBUG =====
 #define DEBUG_SENSOR_STATUS      true    // Mostrar estado del sensor
@@ -154,6 +154,45 @@ void generateRandomPowerData() {
   Serial.printf("   Wheel Revs: %lu, Crank Revs: %u\n", cumulativeWheelRevolutions, cumulativeCrankRevolutions);
   Serial.printf("   Wheel Time: %u, Crank Time: %u\n", lastWheelEventTime, lastCrankEventTime);
   #endif
+}
+
+// Función para generar datos aleatorios realistas de frecuencia cardíaca
+void generateRandomHeartRateData() {
+  // Frecuencia cardíaca (60-180 BPM) - rango realista para ejercicio
+  heartRate = random(60, 180);
+  
+  // FORMATO SIMPLIFICADO: Solo frecuencia cardíaca básica
+  // No generar Energy Expended ni RR Intervals para simplificar
+  
+  // Debug de datos generados
+  #if DEBUG_POWER_DATA
+  Serial.printf("💓 Heart rate data generated (SIMPLIFICADO): HR=%u BPM\n", heartRate);
+  Serial.println("   • 💡 FORMATO SIMPLIFICADO: Solo frecuencia cardíaca (como en bf05e06)");
+  Serial.println("   • 💡 Sin Energy Expended ni RR Intervals para mayor compatibilidad");
+  #endif
+  
+  // Debug adicional para verificar que se esté ejecutando
+  Serial.printf("💓 DEBUG: Función generateRandomHeartRateData ejecutada - HR=%u BPM (SIMPLIFICADO)\n", heartRate);
+}
+
+// Función para calcular la cadencia real basada en los datos enviados
+uint32_t calculateRealCadence() {
+  if (lastCrankEventTime == 0) return 0;
+  
+  // Calcular cadencia basada en el intervalo de tiempo
+  // Fórmula: RPM = (60000 ms) / (tiempo_ms por revolución)
+  // Como enviamos 1 revolución por evento, el tiempo es directamente el intervalo
+  uint32_t realCadence = 60000 / lastCrankEventTime;
+  
+  // Verificar que la cadencia esté en un rango razonable
+  if (realCadence < 30 || realCadence > 200) {
+    Serial.printf("⚠️  Cadencia calculada fuera de rango: %u RPM\n", realCadence);
+    Serial.printf("   • Tiempo del evento: %u ms\n", lastCrankEventTime);
+    Serial.printf("   • Fórmula: 60000 / %u = %u RPM\n", lastCrankEventTime, realCadence);
+    return instantCadence; // Usar la cadencia simulada como fallback
+  }
+  
+  return realCadence;
 }
 
 // Función para generar datos aleatorios realistas de velocidad/cadencia
@@ -512,29 +551,29 @@ class ServerCallbacks: public NimBLEServerCallbacks {
     lastConnectionTime = millis();
     isStableConnection = false;
     
-          // Verificar que la característica esté disponible
-      if (ENABLE_POWER_SENSOR) {
-        Serial.println("🔍 Verificando característica de potencia...");
-        if (pPowerMeasurementCharacteristic) {
-      Serial.println("✅ Power measurement disponible");
-        } else {
-          Serial.println("❌ Power measurement NO disponible");
-    }
-      } else if (ENABLE_SPEED_SENSOR) {
-        Serial.println("🔍 Verificando característica de velocidad/cadencia...");
-        if (pSpeedMeasurementCharacteristic) {
-      Serial.println("✅ Speed measurement disponible");
-        } else {
-          Serial.println("❌ Speed measurement NO disponible");
-    }
-    } else if (ENABLE_HEART_RATE_SENSOR) {
-        Serial.println("🔍 Verificando característica de frecuencia cardíaca...");
-        if (pHeartRateMeasurementCharacteristic) {
-          Serial.println("✅ Heart rate measurement disponible");
-        } else {
-          Serial.println("❌ Heart rate measurement NO disponible");
-        }
+    // Verificar que la característica esté disponible
+    if (ENABLE_POWER_SENSOR) {
+      Serial.println("🔍 Verificando característica de potencia...");
+      if (pPowerMeasurementCharacteristic) {
+        Serial.println("✅ Power measurement disponible");
+      } else {
+        Serial.println("❌ Power measurement NO disponible");
       }
+    } else if (ENABLE_SPEED_SENSOR) {
+      Serial.println("🔍 Verificando característica de velocidad/cadencia...");
+      if (pSpeedMeasurementCharacteristic) {
+        Serial.println("✅ Speed measurement disponible");
+      } else {
+        Serial.println("❌ Speed measurement NO disponible");
+      }
+    } else if (ENABLE_HEART_RATE_SENSOR) {
+      Serial.println("🔍 Verificando característica de frecuencia cardíaca...");
+      if (pHeartRateMeasurementCharacteristic) {
+        Serial.println("✅ Heart rate measurement disponible");
+      } else {
+        Serial.println("❌ Heart rate measurement NO disponible");
+      }
+    }
     
     Serial.println("🔗 Conexión establecida - enviando datos...");
     
@@ -543,10 +582,10 @@ class ServerCallbacks: public NimBLEServerCallbacks {
       generateRandomPowerData();
       updatePowerMeasurementData();
       lastPowerUpdateTime = millis();
-      } else if (ENABLE_SPEED_SENSOR && pSpeedMeasurementCharacteristic != nullptr) {
+    } else if (ENABLE_SPEED_SENSOR && pSpeedMeasurementCharacteristic != nullptr) {
       generateRandomSpeedData();
       updateSpeedMeasurementData();
-        lastPowerUpdateTime = millis();
+      lastPowerUpdateTime = millis();
     } else if (ENABLE_HEART_RATE_SENSOR && pHeartRateMeasurementCharacteristic != nullptr) {
       generateRandomHeartRateData();
       updateHeartRateMeasurementData();
@@ -588,8 +627,42 @@ class ServerCallbacks: public NimBLEServerCallbacks {
       delay(reconnectDelay);
     }
     
+    // SOLUCIÓN MEJORADA: Reiniciar advertising de manera más robusta
+    Serial.println("🔄 Reiniciando advertising para permitir nuevas conexiones...");
+    
+    // Detener advertising actual
+    NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
+    if (pAdvertising) {
+      pAdvertising->stop();
+      Serial.println("✅ Advertising detenido");
+      delay(500); // Pequeña pausa para asegurar que se detenga
+    }
+    
     // Reiniciar advertising
-    NimBLEDevice::startAdvertising();
+    if (pAdvertising) {
+      pAdvertising->start();
+      Serial.println("✅ Advertising reiniciado - ESP32 disponible para nuevas conexiones");
+    } else {
+      Serial.println("❌ Error: No se pudo obtener objeto de advertising");
+    }
+    
+    // Verificar estado del advertising
+    Serial.println("🔍 Verificando estado del advertising...");
+    if (pAdvertising && pAdvertising->isAdvertising()) {
+      Serial.println("✅ Advertising activo y funcionando");
+    } else {
+      Serial.println("❌ Advertising no está activo - intentando reiniciar...");
+      // Último intento de reinicio
+      NimBLEDevice::startAdvertising();
+      delay(1000);
+      if (NimBLEDevice::getAdvertising()->isAdvertising()) {
+        Serial.println("✅ Advertising reiniciado exitosamente");
+      } else {
+        Serial.println("❌ Error crítico: No se pudo reiniciar el advertising");
+      }
+    }
+    
+    Serial.println("📡 ESP32 ahora está anunciando y disponible para nuevas conexiones");
   }
 };
 
@@ -904,6 +977,207 @@ void checkBLEConnectionStatus() {
   Serial.println();
 }
 
+// NUEVA FUNCIÓN: Verificar estado real de la conexión BLE
+void verifyRealBLEConnection() {
+  static unsigned long lastConnectionCheck = 0;
+  unsigned long currentTime = millis();
+  
+  // Verificar cada 5 segundos
+  if (currentTime - lastConnectionCheck < 5000) return;
+  lastConnectionCheck = currentTime;
+  
+  // Solo verificar si creemos que estamos conectados
+  if (!deviceConnected) return;
+  
+  Serial.println("🔍 Verificando estado real de la conexión BLE...");
+  
+  // Verificar si realmente hay una conexión activa
+  NimBLEServer* pServer = NimBLEDevice::getServer();
+  if (!pServer) {
+    Serial.println("❌ Servidor BLE no disponible - conexión perdida");
+    deviceConnected = false;
+    return;
+  }
+  
+  // Verificar número de conexiones activas
+  int connectedCount = pServer->getConnectedCount();
+  Serial.printf("🔍 Conexiones activas reportadas por BLE: %d\n", connectedCount);
+  
+  if (connectedCount == 0 && deviceConnected) {
+    Serial.println("⚠️  DESCONEXIÓN DETECTADA: BLE reporta 0 conexiones pero deviceConnected = true");
+    Serial.println("🔄 Actualizando estado de conexión...");
+    
+    // Actualizar estado
+    deviceConnected = false;
+    isStableConnection = false;
+    lastDisconnectTime = millis();
+    
+    // Reiniciar advertising inmediatamente
+    Serial.println("🔄 Reiniciando advertising debido a desconexión detectada...");
+    NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
+    if (pAdvertising) {
+      pAdvertising->stop();
+      delay(500);
+      pAdvertising->start();
+      Serial.println("✅ Advertising reiniciado después de detectar desconexión");
+    }
+    
+    return;
+  }
+  
+  // Verificar que podemos enviar datos (prueba de conectividad)
+  bool canSendData = false;
+  if (ENABLE_POWER_SENSOR && pPowerMeasurementCharacteristic != nullptr) {
+    // Intentar enviar un dato de prueba
+    generateRandomPowerData();
+    canSendData = pPowerMeasurementCharacteristic->notify();
+  } else if (ENABLE_SPEED_SENSOR && pSpeedMeasurementCharacteristic != nullptr) {
+    // Intentar enviar un dato de prueba
+    generateRandomSpeedData();
+    canSendData = pSpeedMeasurementCharacteristic->notify();
+  } else if (ENABLE_HEART_RATE_SENSOR && pHeartRateMeasurementCharacteristic != nullptr) {
+    // Intentar enviar un dato de prueba
+    generateRandomHeartRateData();
+    canSendData = pHeartRateMeasurementCharacteristic->notify();
+  }
+  
+  if (!canSendData && deviceConnected) {
+    Serial.println("⚠️  DESCONEXIÓN DETECTADA: No se pueden enviar datos");
+    Serial.println("🔄 Actualizando estado de conexión...");
+    
+    // Actualizar estado
+    deviceConnected = false;
+    isStableConnection = false;
+    lastDisconnectTime = millis();
+    
+    // Reiniciar advertising
+    Serial.println("🔄 Reiniciando advertising debido a fallo en envío de datos...");
+    NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
+    if (pAdvertising) {
+      pAdvertising->stop();
+      delay(500);
+      pAdvertising->start();
+      Serial.println("✅ Advertising reiniciado después de fallo en envío");
+    }
+  } else if (canSendData && deviceConnected) {
+    Serial.println("✅ Conexión BLE verificada y funcionando correctamente");
+  }
+}
+
+// Función para forzar el reinicio del advertising
+void forceAdvertisingRestart() {
+  Serial.println("🔄 FORZANDO REINICIO DEL ADVERTISING...");
+  
+  // Detener advertising actual
+  NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
+  if (pAdvertising) {
+    pAdvertising->stop();
+    Serial.println("✅ Advertising detenido");
+    delay(1000); // Pausa más larga para asegurar que se detenga completamente
+  }
+  
+  // Reiniciar advertising
+  if (pAdvertising) {
+    pAdvertising->start();
+    Serial.println("✅ Advertising reiniciado");
+    
+    // Verificar que esté funcionando
+    delay(500);
+    if (pAdvertising->isAdvertising()) {
+      Serial.println("✅ Advertising funcionando correctamente");
+    } else {
+      Serial.println("❌ Advertising no está funcionando - intentando método alternativo");
+      // Método alternativo
+      NimBLEDevice::startAdvertising();
+      delay(1000);
+      if (NimBLEDevice::getAdvertising()->isAdvertising()) {
+        Serial.println("✅ Advertising reiniciado con método alternativo");
+      } else {
+        Serial.println("❌ Error crítico: No se pudo reiniciar el advertising");
+      }
+    }
+  }
+  
+  Serial.println("📡 ESP32 ahora está anunciando y disponible para nuevas conexiones");
+}
+
+// Función de emergencia para reiniciar completamente el BLE
+void emergencyBLERestart() {
+  Serial.println("🚨 REINICIO DE EMERGENCIA DEL BLE...");
+  
+  // Detener todo el sistema BLE
+  NimBLEDevice::deinit();
+  Serial.println("✅ BLE desinicializado");
+  
+  delay(2000); // Pausa para asegurar que se desinicialice completamente
+  
+  // Reinicializar BLE
+  String deviceName;
+  if (ENABLE_POWER_SENSOR) {
+    deviceName = "ESP32 PowerSensor";
+  } else if (ENABLE_SPEED_SENSOR) {
+    deviceName = "ESP32 SpeedSensor";
+  } else if (ENABLE_HEART_RATE_SENSOR) {
+    deviceName = "ESP32 HeartRate";
+  }
+  
+  NimBLEDevice::init(deviceName.c_str());
+  Serial.printf("✅ BLE reinicializado como '%s'\n", deviceName.c_str());
+  
+  // Subir potencia de transmisión
+  NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+  
+  // Crear servidor y servicios
+  NimBLEServer* pServer = NimBLEDevice::createServer();
+  pServer->setCallbacks(new ServerCallbacks());
+  
+  // Recrear servicios según configuración
+  if (ENABLE_POWER_SENSOR) {
+    createPowerService(pServer);
+  }
+  if (ENABLE_SPEED_SENSOR) {
+    createSpeedService(pServer);
+  }
+  if (ENABLE_HEART_RATE_SENSOR) {
+    createHeartRateService(pServer);
+  }
+  
+  // Configurar y reiniciar advertising
+  NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
+  
+  if (ENABLE_POWER_SENSOR) {
+    pAdvertising->addServiceUUID(CYCLING_POWER_SERVICE_UUID);
+  }
+  if (ENABLE_SPEED_SENSOR) {
+    pAdvertising->addServiceUUID(CYCLING_SPEED_CADENCE_UUID);
+  }
+  if (ENABLE_HEART_RATE_SENSOR) {
+    pAdvertising->addServiceUUID(HEART_RATE_SERVICE_UUID);
+  }
+  
+  // Establecer apariencia GAP
+  uint16_t appearance;
+  if (ENABLE_POWER_SENSOR) {
+    appearance = 0x0485; // Cycling Power Sensor
+  } else if (ENABLE_SPEED_SENSOR) {
+    appearance = 0x0486; // Cycling Speed and Cadence Sensor
+  } else if (ENABLE_HEART_RATE_SENSOR) {
+    appearance = 0x03C0; // Heart Rate Sensor
+  }
+  pAdvertising->setAppearance(appearance);
+  
+  // Iniciar advertising
+  pAdvertising->start();
+  Serial.println("✅ Advertising reiniciado después de reinicio de emergencia");
+  
+  // Resetear variables de estado
+  deviceConnected = false;
+  isStableConnection = false;
+  connectionAttempts = 0;
+  
+  Serial.println("🚨 REINICIO DE EMERGENCIA COMPLETADO - ESP32 disponible para conexiones");
+}
+
 // Función para verificar el estado del advertising
 void checkAdvertisingStatus() {
   Serial.println("📡 VERIFICANDO ESTADO DEL ADVERTISING:");
@@ -925,6 +1199,7 @@ void checkAdvertisingStatus() {
     Serial.println("   • Servicio: 1816 (Cycling Speed and Cadence Service)");
     Serial.println("   • Característica: 2A5B (Cycling Speed and Cadence Measurement)");
     Serial.println("   • Features: 0x0003 (Wheel + Crank Revolution Data)");
+    Serial.println("   • Flags: 0x03 (Wheel + Crank Revolution Data Present)");
     Serial.println("   • Flags: 0x03 (Wheel + Crank Revolution Data Present)");
     Serial.println("   • Formato: 11 bytes (Flags + Wheel + Crank data)");
     Serial.println("   • Tiempos: En MILISEGUNDOS (no en 1/1024 segundos)");
@@ -1006,7 +1281,7 @@ void debugSpeedSensor() {
   if (pSpeedMeasurementCharacteristic != nullptr) {
     Serial.println("🔗 PROPIEDADES DE LA CARACTERÍSTICA BLE:");
     Serial.printf("   • UUID: %s\n", pSpeedMeasurementCharacteristic->getUUID().toString().c_str());
-    Serial.printf("   • Propiedades: %s\n", pSpeedMeasurementCharacteristic->getProperties() & BLE_GATT_CHR_PROP_NOTIFY ? "NOTIFY ✅" : "NOTIFY ❌");
+    Serial.printf("   • Propiedades: %s\n", pSpeedMeasurementCharacteristic->getProperties() & NIMBLE_PROPERTY::NOTIFY ? "NOTIFY ✅" : "NOTIFY ❌");
     Serial.printf("   • Tamaño del paquete: 5 bytes (formato simplificado)\n");
     Serial.printf("   • Flags enviados: 0x02 (solo Crank, sin Wheel)\n");
   }
@@ -1121,48 +1396,6 @@ void verifySpeedDataFormat() {
   Serial.println();
 }
 
-// Función para calcular la cadencia real basada en los datos enviados
-uint32_t calculateRealCadence() {
-  if (lastCrankEventTime == 0) return 0;
-  
-  // Calcular cadencia basada en el intervalo de tiempo
-  // Fórmula: RPM = (60000 ms) / (tiempo_ms por revolución)
-  // Como enviamos 1 revolución por evento, el tiempo es directamente el intervalo
-  uint32_t realCadence = 60000 / lastCrankEventTime;
-  
-  // Verificar que la cadencia esté en un rango razonable
-  if (realCadence < 30 || realCadence > 200) {
-    Serial.printf("⚠️  Cadencia calculada fuera de rango: %u RPM\n", realCadence);
-    Serial.printf("   • Tiempo del evento: %u ms\n", lastCrankEventTime);
-    Serial.printf("   • Fórmula: 60000 / %u = %u RPM\n", lastCrankEventTime, realCadence);
-    return instantCadence; // Usar la cadencia simulada como fallback
-  }
-  
-  return realCadence;
-}
-
-// Función para mostrar la diferencia entre cadencia simulada y calculada
-void debugCadenceDifference() {
-  if (!ENABLE_SPEED_SENSOR) return;
-  
-  uint32_t realCadence = calculateRealCadence();
-  if (realCadence > 0) {
-    int32_t difference = (int32_t)instantCadence - (int32_t)realCadence;
-    Serial.printf("🔧 DIFERENCIA DE CADENCIA: Simulada=%u, Calculada=%u, Diferencia=%d RPM\n",
-                 instantCadence, realCadence, difference);
-    
-    // Mostrar fórmula de cálculo
-    Serial.printf("   • Fórmula: 60000 / %u ms = %u RPM\n", lastCrankEventTime, realCadence);
-    
-    // Verificar si la diferencia es significativa
-    if (abs(difference) > 20) {
-      Serial.printf("⚠️  Diferencia significativa detectada (>20 RPM)\n");
-      Serial.printf("   • Posible causa: Tiempos muy altos o muy bajos\n");
-      Serial.printf("   • Wheel Time: %u ms, Crank Time: %u ms\n", lastWheelEventTime, lastCrankEventTime);
-    }
-  }
-}
-
 // Función para mostrar el estado de los tiempos del sensor de velocidad/cadencia
 void debugTimeStatus() {
   if (!ENABLE_SPEED_SENSOR) return;
@@ -1245,25 +1478,6 @@ void debugGarminInterpretation() {
   Serial.println("   • Garmin calcula DELTAS para cadencia ✅");
   Serial.println("   • Por eso los valores individuales no importan, solo las diferencias ✅");
   Serial.println();
-}
-
-// Función para generar datos aleatorios realistas de frecuencia cardíaca
-void generateRandomHeartRateData() {
-  // Frecuencia cardíaca (60-180 BPM) - rango realista para ejercicio
-  heartRate = random(60, 180);
-  
-  // FORMATO SIMPLIFICADO: Solo frecuencia cardíaca básica
-  // No generar Energy Expended ni RR Intervals para simplificar
-  
-  // Debug de datos generados
-  #if DEBUG_POWER_DATA
-  Serial.printf("💓 Heart rate data generated (SIMPLIFICADO): HR=%u BPM\n", heartRate);
-  Serial.println("   • 💡 FORMATO SIMPLIFICADO: Solo frecuencia cardíaca (como en bf05e06)");
-  Serial.println("   • 💡 Sin Energy Expended ni RR Intervals para mayor compatibilidad");
-  #endif
-  
-  // Debug adicional para verificar que se esté ejecutando
-  Serial.printf("💓 DEBUG: Función generateRandomHeartRateData ejecutada - HR=%u BPM (SIMPLIFICADO)\n", heartRate);
 }
 
 // Función para debug del estado de conexión BLE
@@ -1540,6 +1754,30 @@ void loop() {
       Serial.println("⏰ Verificación periódica del advertising...");
       checkAdvertisingStatus();
       
+      // NUEVA VERIFICACIÓN: Comprobar si el advertising está realmente funcionando
+      NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
+      if (pAdvertising && !pAdvertising->isAdvertising()) {
+        Serial.println("⚠️  ADVERTISING NO ESTÁ FUNCIONANDO - forzando reinicio...");
+        forceAdvertisingRestart();
+        
+        // Contador de intentos de reinicio del advertising
+        static uint8_t advertisingRestartAttempts = 0;
+        advertisingRestartAttempts++;
+        
+        // Si después de 3 intentos sigue sin funcionar, usar reinicio de emergencia
+        if (advertisingRestartAttempts >= 3) {
+          Serial.println("🚨 Demasiados intentos fallidos de reinicio del advertising");
+          Serial.println("🚨 Aplicando reinicio de emergencia del BLE...");
+          emergencyBLERestart();
+          advertisingRestartAttempts = 0; // Resetear contador
+        }
+      } else if (pAdvertising && pAdvertising->isAdvertising()) {
+        Serial.println("✅ Advertising funcionando correctamente");
+        // Resetear contador si está funcionando
+        static uint8_t advertisingRestartAttempts = 0;
+        advertisingRestartAttempts = 0;
+      }
+      
       // Verificar estado BLE cada 30 segundos
       checkBLEConnectionStatus();
       
@@ -1562,23 +1800,23 @@ void loop() {
       if (currentTime - lastAdvertisingRestart >= 120000) { // 2 minutos
         lastAdvertisingRestart = currentTime;
         Serial.println("🔄 Reiniciando advertising para mejorar descubrimiento...");
-        NimBLEDevice::getAdvertising()->stop();
-        delay(1000);
-        NimBLEDevice::getAdvertising()->start();
-        Serial.println("✅ Advertising reiniciado");
+        forceAdvertisingRestart();
       }
     }
     
           // Verificar estado de conexión cada 5 segundos para detectar conexiones perdidas
       if (currentTime - lastConnectionCheck >= 5000) {
-      lastConnectionCheck = currentTime;
-      
+        lastConnectionCheck = currentTime;
+        
         // Si no hay conexión detectada, intentar detectarla alternativamente
-      if (!deviceConnected) {
+        if (!deviceConnected) {
           Serial.println("🔍 Verificando conexión alternativamente...");
-        forceConnectionDetection();
+          forceConnectionDetection();
+        }
+        
+        // NUEVA FUNCIÓN: Verificar estado real de la conexión BLE cada 5 segundos
+        verifyRealBLEConnection();
       }
-    }
       
       // Si hay conexión detectada, verificar que se mantenga activa
       if (deviceConnected) {
